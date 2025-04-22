@@ -4,7 +4,7 @@
 
 1. Clone the repository or download the installation script
 2. Create a `setup.env` file with your configuration:
-   ```
+   ```bash
    # NeoLedger Configuration
    FRONTEND_URL=neoledger.example.com
    BACKEND_URL=api.neoledger.example.com
@@ -41,7 +41,6 @@ The installation script (`install.sh`) automates the complete setup of NeoLedger
 1. **System preparation**:
 
    - Updates system packages
-   - Fixes locale settings
    - Installs required system packages
 
 2. **PostgreSQL setup**:
@@ -88,12 +87,11 @@ If you prefer to install NeoLedger manually, follow these steps:
 
 ### 1. Prerequisites
 
+```bash
 # Update system
-
 apt-get update && apt-get upgrade -y
 
 # Install required packages
-
 apt-get install -y perl apache2 postgresql postgresql-contrib libdbd-pg-perl wget \
  libdbi-perl texlive texlive-latex-extra texlive-pstricks texlive-science cpanminus unzip \
  git curl certbot python3-certbot-apache build-essential libbz2-dev zlib1g-dev \
@@ -102,32 +100,25 @@ apt-get install -y perl apache2 postgresql postgresql-contrib libdbd-pg-perl wge
  libfile-slurp-perl libjson-perl libmojolicious-perl libdbi-perl libdbd-pg-perl \
  libmime-base64-perl libio-compress-perl libencode-perl wkhtmltopdf
 
-# Fix locale settings
-
-locale-gen en_US.UTF-8
-update-locale LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
-export LANG=en_US.UTF-8
-export LC_ALL=en_US.UTF-8
+```
 
 ### 2. Install Additional Perl Modules
 
+```bash
 cpanm --notest --force SQL::Abstract File::Copy::Recursive Dotenv Mojo::Template \
  IO::Compress::Zip XML::Hash::XS DBIx::Simple Email::Stuffer Email::Sender::Transport::SMTP
+```
 
 ### 3. Configure PostgreSQL
 
+```bash
 # Create PostgreSQL user
-
 sudo -u postgres psql -c "CREATE USER postgres_username WITH PASSWORD 'postgres_secure_password' CREATEDB;"
 
 # Update PostgreSQL authentication method from peer to md5
-
 # Modify the PostgreSQL configuration file (pg_hba.conf) by changing the line:
-
 # "local all all peer" to "local all all md5"
-
 # This changes authentication from 'peer' (system user-based) to 'md5' (password-based),
-
 # allowing database connections using username/password credentials
 
 PG_VERSION=$(ls -d /etc/postgresql/*/ | sort -V | tail -n1 | cut -d'/' -f4)
@@ -136,53 +127,47 @@ sed -i 's/local\s\+all\s\+all\s\+peer/local all all md5/g' $PG_HBA_CONF
 systemctl restart postgresql
 
 # Create database with user as owner
-
 sudo -u postgres psql -c "CREATE DATABASE centraldb OWNER postgres_username;"
 
 # Grant privileges
-
 sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE centraldb TO postgres_username;"
 
 # Enable pgcrypto extension
-
 export PGPASSWORD="postgres_secure_password"
 psql -U postgres_username -h 127.0.0.1 centraldb -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
 
 # Import schema
-
 psql -U postgres_username -h 127.0.0.1 centraldb < centraldb.sql
 
 # Create admin user
-
 psql -U postgres_username -h 127.0.0.1 centraldb -c "INSERT INTO profile (email, password) VALUES ('admin@example.com', crypt('your_password', gen_salt('bf')));"
+```
 
 ### 4. Install Node.js and Quasar CLI
 
+```bash
 # Install Node.js 20 LTS
-
 curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
 apt-get install -y nodejs
 
 # Install Quasar CLI
-
 npm install -g @quasar/cli
+```
 
 ### 5. Setup Backend
 
+```bash
 # Create directory and clone repository
-
 mkdir -p /var/www/html/
 cd /var/www/html/
 git clone https://github.com/HashimSaqib/sql-ledger-api.git
 cd sql-ledger-api
 
 # Create tmp directory
-
 mkdir -p tmp
 chmod 755 tmp
 
 # Create .env file
-
 cat > .env << EOF
 SMTP_HOST=
 SMTP_PORT=
@@ -203,18 +188,21 @@ POSTGRES_USER=postgres_username
 POSTGRES_PASSWORD=postgres_secure_password
 EOF
 
-# Start backend service. Runs the backend on Port 3000 which we reverse Proxy to. Creates a file called hypnotoad.pid with the pid of the process. Process needs to be killed & restarted whenever ENV changes.
-
+# Start backend service
+# Runs the backend on Port 3000 which we reverse Proxy to.
+# Creates a file called hypnotoad.pid with the pid of the process.
+# Process needs to be killed & restarted whenever ENV changes.
 hypnotoad index.pl
+```
 
 ### 6. Setup Frontend
 
+```bash
 cd /var/www/html/
 git clone https://github.com/HashimSaqib/neo-ledger.git
 cd neo-ledger
 
 # Create configuration file
-
 cat > neoledger.json << EOF
 {
 "apiurl": "https://your-backend-domain.com"
@@ -222,20 +210,19 @@ cat > neoledger.json << EOF
 EOF
 
 # Install dependencies and build
-
 npm install
 quasar build
+```
 
 ### 7. Configure Apache Web Server
 
+```bash
 # Enable required modules
-
 a2enmod proxy proxy_http ssl rewrite
 
 # Create frontend virtual host
-
 cat > /etc/apache2/sites-available/frontend-domain.conf << EOF
-<VirtualHost \*:80>
+<VirtualHost *:80>
 ServerName frontend-domain.com
 DocumentRoot /var/www/html/neo-ledger/dist/spa
 
@@ -258,9 +245,8 @@ DocumentRoot /var/www/html/neo-ledger/dist/spa
 EOF
 
 # Create backend virtual host
-
 cat > /etc/apache2/sites-available/backend-domain.conf << EOF
-<VirtualHost \*:80>
+<VirtualHost *:80>
 ServerName backend-domain.com
 
     ProxyPreserveHost On
@@ -274,22 +260,22 @@ ServerName backend-domain.com
 EOF
 
 # Enable sites
-
 a2ensite frontend-domain.conf
 a2ensite backend-domain.conf
 systemctl reload apache2
+```
 
 ### 8. Setup SSL Certificates
 
+```bash
 # Obtain SSL certificates with certbot
-
 certbot --apache -d frontend-domain.com --non-interactive --agree-tos --email admin@example.com --redirect
 certbot --apache -d backend-domain.com --non-interactive --agree-tos --email admin@example.com --redirect
 
 # Final restart of services
-
 systemctl restart apache2
 cd /var/www/html/sql-ledger-api && hypnotoad index.pl
+```
 
 After completing these steps, your NeoLedger installation should be accessible at https://frontend-domain.com with the API available at https://backend-domain.com.
 
@@ -335,7 +321,7 @@ After completing these steps, your NeoLedger installation should be accessible a
 
 Update your backend `.env` file with the Google credentials:
 
-```
+```bash
 GOOGLE_CLIENT_ID=your_client_id
 GOOGLE_SECRET=your_client_secret
 ALL_DRIVE=0
