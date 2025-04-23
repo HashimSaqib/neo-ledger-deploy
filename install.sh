@@ -144,6 +144,7 @@ cpanm --notest --force \
     DBIx::Simple \
     Email::Stuffer \
     Email::Sender::Transport::SMTP \
+    PDF::WebKit \
 
 # Install wkhtmltopdf, needed for HTML TO PDF converstion
 apt-get install -y wkhtmltopdf
