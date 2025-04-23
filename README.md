@@ -2,8 +2,9 @@
 
 ## Quick Installation Guide
 
-1. Clone the repository or download the installation script
-2. Create a `setup.env` file with your configuration:
+1. While it is not required, we recommend going through the detailed installation guide below before proceeding.
+2. Clone the repository or download the installation script
+3. Create a `setup.env` file with your configuration:
    ```bash
    # NeoLedger Configuration
    FRONTEND_URL=neoledger.example.com
@@ -13,15 +14,17 @@
    POSTGRES_USER=postgres_username
    POSTGRES_PASSWORD=postgres_secure_password
    ```
-3. Make the installation script executable:
+4. Make the installation script executable:
    ```bash
    chmod +x install.sh
    ```
-4. Run the installation script as root:
+5. Run the installation script as root:
    ```bash
    sudo ./install.sh
    ```
-5. Ensure your DNS records point to your server for both the frontend and backend domains
+6. Update .env inside /var/www/html/sql-ledger-api to include SEND_IN_BLUE api key OR smtp details.
+7. Ensure your DNS records point to your server for both the frontend and backend domains
+8. Setup Google Drive OR Dropbox for document Management (Detail below).
 
 ## Overview of the Installation Process
 
@@ -168,7 +171,10 @@ mkdir -p tmp
 chmod 755 tmp
 
 # Create .env file
+# If API is defined in SEND_IN_BLUE, send in blue will be used to send email. Send Name is defined in SMTP_FROM_NAME & SMTP_USERNAME is used for send email. SMTP is used if no value in SEND_IN_BLUE. Email functionality is needed to send invite email for database access.
 cat > .env << EOF
+SEND_IN_BLUE=
+SMTP_FROM_NAME=
 SMTP_HOST=
 SMTP_PORT=
 SMTP_SSL=

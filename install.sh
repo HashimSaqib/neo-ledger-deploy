@@ -145,7 +145,7 @@ cpanm --notest --force \
     Email::Stuffer \
     Email::Sender::Transport::SMTP \
     PDF::WebKit \
-
+    Authen::SASL \
 # Install wkhtmltopdf, needed for HTML TO PDF converstion
 apt-get install -y wkhtmltopdf
 
@@ -179,6 +179,8 @@ ALLOW_DB_CREATION=1
 SUPER_USERS=$ADMIN_EMAIL
 
 # SMTP settings
+SEND_IN_BLUE=
+SMTP_FROM_NAME=Neo Ledger
 SMTP_HOST=
 SMTP_PORT=465
 SMTP_SSL=1
