@@ -146,6 +146,8 @@ cpanm --notest --force \
     Email::Sender::Transport::SMTP \
     PDF::WebKit \
     Authen::SASL \
+    Minion \
+    Mojo::Pg \
 # Install wkhtmltopdf, needed for HTML TO PDF converstion
 apt-get install -y wkhtmltopdf
 
@@ -198,6 +200,10 @@ GOOGLE_CLIENT_ID=
 GOOGLE_SECRET=
 ALL_DRIVE =0
 EOF
+
+# Set proper ownership for the backend directory
+echo_status "Setting proper ownership for backend directory..."
+chown -R www-data:www-data /var/www/html/sql-ledger-api
 
 # Create PostgreSQL database and import schema
 sudo -u postgres psql -c "CREATE DATABASE centraldb OWNER $POSTGRES_USER;" || error_exit "Failed to create database"
@@ -259,6 +265,29 @@ quasar build || error_exit "Failed to build frontend"
 # Start backend service with hypnotoad
 cd /var/www/html/sql-ledger-api
 hypnotoad index.pl || echo "Failed to start hypnotoad. Will try again after web server setup."
+
+# Configure Minion workers for background job processing
+echo_status "Configuring Minion workers for background job processing..."
+cat > /etc/systemd/system/minion.service << EOF
+[Unit]
+Description=SQL-Ledger API Minion Workers
+After=postgresql.service
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/var/www/html/sql-ledger-api
+ExecStart=/var/www/html/sql-ledger-api/index.pl minion worker -m production
+KillMode=process
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# Enable and start Minion service
+systemctl daemon-reload
+systemctl enable minion
+systemctl start minion || echo "Failed to start Minion service. Will try again after web server setup."
 
 # Make sure Apache is installed and enabled
 apt-get install -y apache2

@@ -38,6 +38,7 @@ The installation script (`install.sh`) automates the complete setup of NeoLedger
 - **Database**: PostgreSQL with centraldb schema
 - **Web server**: Apache with virtual hosts
 - **SSL certificates**: Using Certbot/Let's Encrypt
+- **Background Jobs**: Minion job queue system with systemd service
 
 ### Configuration Process
 
@@ -109,7 +110,8 @@ apt-get install -y perl apache2 postgresql postgresql-contrib libdbd-pg-perl wge
 
 ```bash
 cpanm --notest --force SQL::Abstract File::Copy::Recursive Dotenv Mojo::Template \
- IO::Compress::Zip XML::Hash::XS DBIx::Simple Email::Stuffer Email::Sender::Transport::SMTP
+ IO::Compress::Zip XML::Hash::XS DBIx::Simple Email::Stuffer Email::Sender::Transport::SMTP \
+ Minion Mojo::Pg
 ```
 
 ### 3. Configure PostgreSQL
@@ -170,6 +172,7 @@ cd sql-ledger-api
 mkdir -p tmp
 chmod 755 tmp
 
+
 # Create .env file
 # If API is defined in SEND_IN_BLUE, send in blue will be used to send email. Send Name is defined in SMTP_FROM_NAME & SMTP_USERNAME is used for send email. SMTP is used if no value in SEND_IN_BLUE. Email functionality is needed to send invite email for database access.
 cat > .env << EOF
@@ -194,11 +197,35 @@ POSTGRES_USER=postgres_username
 POSTGRES_PASSWORD=postgres_secure_password
 EOF
 
+# Set proper ownership for the backend directory
+chown -R www-data:www-data /var/www/html/sql-ledger-api
 # Start backend service
 # Runs the backend on Port 3000 which we reverse Proxy to.
 # Creates a file called hypnotoad.pid with the pid of the process.
 # Process needs to be killed & restarted whenever ENV changes.
 hypnotoad index.pl
+
+# Configure and start Minion workers
+cat > /etc/systemd/system/minion.service << EOF
+[Unit]
+Description=SQL-Ledger API Minion Workers
+After=postgresql.service
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/var/www/html/sql-ledger-api
+ExecStart=/var/www/html/sql-ledger-api/index.pl minion worker -m production
+KillMode=process
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# Enable and start Minion service
+systemctl daemon-reload
+systemctl enable minion
+systemctl start minion
 ```
 
 ### 6. Setup Frontend
@@ -349,3 +376,39 @@ Google Drive API access is controlled by the `ALL_DRIVE` setting:
     - Going through Google's verification process (for external user type)
 
 For most deployments, restricted access (ALL_DRIVE=0) is recommended unless shared drive access is specifically required.
+
+## System Updates
+
+To update your NeoLedger installation to the latest version, run the following commands:
+
+```bash
+# Update frontend
+cd /var/www/html/neo-ledger
+git pull
+npm install
+quasar build
+
+# Update backend
+cd /var/www/html/sql-ledger-api
+git pull
+systemctl stop minion
+hypnotoad index.pl
+systemctl start minion
+```
+
+This will:
+
+1. Pull the latest changes for the frontend
+2. Install any new dependencies
+3. Rebuild the frontend application
+4. Pull the latest changes for the backend
+5. Stop the Minion worker service
+6. Restart the backend service with the new changes
+7. Start the Minion worker service again
+
+Make sure to check the logs after updating to ensure everything is working correctly:
+
+```bash
+tail -f /var/log/apache2/error.log
+systemctl status minion
+```
