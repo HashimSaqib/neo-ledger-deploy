@@ -148,6 +148,7 @@ cpanm --notest --force \
     Authen::SASL \
     Minion \
     Mojo::Pg \
+    Text::CSV \
 # Install wkhtmltopdf, needed for HTML TO PDF converstion
 apt-get install -y wkhtmltopdf
 
