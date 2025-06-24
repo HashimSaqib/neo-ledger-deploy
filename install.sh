@@ -165,6 +165,15 @@ echo_status "Creating tmp directory..."
 mkdir -p tmp
 chmod 755 tmp
 
+# Make backup script executable
+echo_status "Making backup script executable..."
+if [ -f "backup_datasets.pl" ]; then
+    chmod +x backup_datasets.pl
+    echo_status "backup_datasets.pl is now executable"
+else
+    echo "Warning: backup_datasets.pl not found in the repository"
+fi
+
 # Create .env file for backend
 cat > .env << EOF
 
@@ -290,6 +299,33 @@ systemctl daemon-reload
 systemctl enable minion
 systemctl start minion || echo "Failed to start Minion service. Will try again after web server setup."
 
+# Configure daily backup cron job
+echo_status "Setting up daily backup cron job..."
+
+# Create backup directory
+echo_status "Creating backup directory..."
+mkdir -p /var/backups/neoledger
+chown www-data:www-data /var/backups/neoledger
+chmod 755 /var/backups/neoledger
+
+if [ -f "/var/www/html/sql-ledger-api/backup_datasets.pl" ]; then
+    # Create cron job for www-data user to run backup daily at 2 AM
+    cat > /tmp/backup_cron << EOF
+# Daily backup of NeoLedger datasets at 2:00 AM
+0 2 * * * cd /var/www/html/sql-ledger-api && ./backup_datasets.pl
+EOF
+    
+    # Install the cron job for www-data user
+    crontab -u www-data /tmp/backup_cron
+    rm /tmp/backup_cron
+    
+    echo_status "Daily backup cron job configured for www-data user at 2:00 AM"
+    echo_status "Backup script will use its internal logging system"
+    echo_status "Backup directory created at /var/backups/neoledger"
+else
+    echo "Warning: backup_datasets.pl not found, skipping cron job setup"
+fi
+
 # Make sure Apache is installed and enabled
 apt-get install -y apache2
 a2enmod proxy proxy_http ssl rewrite
@@ -359,6 +395,13 @@ echo_status "Restarting services..."
 systemctl restart apache2
 cd /var/www/html/sql-ledger-api && hypnotoad index.pl
 
+# Display final status
+echo_status "Installation completed successfully!"
+echo_status "Frontend URL: https://${FRONTEND_URL}"
+echo_status "Backend URL: https://${BACKEND_URL}"
+echo_status "Admin Email: ${ADMIN_EMAIL}"
+echo_status "Daily backups scheduled at 2:00 AM"
+echo_status "Backup directory: /var/backups/neoledger"
 
 # Remove setup.env file (important because this contains credentials)
 rm -f setup.env || echo "Warning: Could not remove setup.env file"
