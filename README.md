@@ -25,6 +25,7 @@
 6. Update .env inside /var/www/html/sql-ledger-api to include SEND_IN_BLUE api key OR smtp details.
 7. Ensure your DNS records point to your server for both the frontend and backend domains
 8. Setup Google Drive OR Dropbox for document Management (Detail below).
+9. **Backup System**: The installation automatically configures a daily backup system that runs at 2:00 AM. Backups are stored in `/var/backups/neoledger/` and include all datasets plus the central database. The backup retention is set to 14 days by default. You can configure backup settings by adding environment variables to the backend `.env` file (see Backup Configuration section below).
 
 ## Overview of the Installation Process
 
@@ -39,6 +40,7 @@ The installation script (`install.sh`) automates the complete setup of NeoLedger
 - **Web server**: Apache with virtual hosts
 - **SSL certificates**: Using Certbot/Let's Encrypt
 - **Background Jobs**: Minion job queue system with systemd service
+- **Backup System**: Automated daily backup script with cron job scheduling
 
 ### Configuration Process
 
@@ -71,10 +73,17 @@ The installation script (`install.sh`) automates the complete setup of NeoLedger
    - Builds the frontend application
 
 5. **Web server configuration**:
+
    - Creates Apache virtual hosts for frontend and backend
    - Configures proxy for backend API
    - Sets up URL rewriting for SPA frontend
    - Obtains and configures SSL certificates
+
+6. **Backup system setup**:
+   - Creates backup directory at `/var/backups/neoledger/`
+   - Configures daily cron job for automated backups at 2:00 AM
+   - Sets up backup script with proper permissions
+   - Configures backup retention and logging
 
 ### Created Files and Directories
 
@@ -84,6 +93,9 @@ The installation script (`install.sh`) automates the complete setup of NeoLedger
 - `/var/www/html/neo-ledger/neoledger.json` - Frontend API URL configuration
 - `/etc/apache2/sites-available/[FRONTEND_URL].conf` - Apache frontend config
 - `/etc/apache2/sites-available/[BACKEND_URL].conf` - Apache backend config
+- `/var/backups/neoledger/` - Backup directory for database dumps
+- `/var/www/html/sql-ledger-api/backup_datasets.pl` - Backup script
+- `/var/log/neoledger_backups.log` - Backup log file (if configured)
 
 ## Manual Installation Guide
 
@@ -311,6 +323,135 @@ cd /var/www/html/sql-ledger-api && hypnotoad index.pl
 ```
 
 After completing these steps, your NeoLedger installation should be accessible at https://frontend-domain.com with the API available at https://backend-domain.com.
+
+### 9. Setup Backup System
+
+```bash
+# Create backup directory
+mkdir -p /var/backups/neoledger
+chown www-data:www-data /var/backups/neoledger
+chmod 755 /var/backups/neoledger
+
+# Make backup script executable (if it exists in the repository)
+cd /var/www/html/sql-ledger-api
+if [ -f "backup_datasets.pl" ]; then
+    chmod +x backup_datasets.pl
+
+    # Create cron job for www-data user to run backup daily at 2 AM
+    cat > /tmp/backup_cron << EOF
+# Daily backup of NeoLedger datasets at 2:00 AM
+0 2 * * * cd /var/www/html/sql-ledger-api && ./backup_datasets.pl
+EOF
+
+    # Install the cron job for www-data user
+    crontab -u www-data /tmp/backup_cron
+    rm /tmp/backup_cron
+
+    echo "Daily backup cron job configured for www-data user at 2:00 AM"
+    echo "Backup directory created at /var/backups/neoledger"
+else
+    echo "Warning: backup_datasets.pl not found in the repository"
+fi
+```
+
+## Backup Configuration
+
+The backup system is automatically configured during installation, but you can customize its behavior by adding environment variables to the backend `.env` file:
+
+### Backup Environment Variables
+
+```bash
+# Backup directory (default: /var/backups/neoledger)
+BACKUP_DIR=/var/backups/neoledger
+
+# Retention period in days (default: 14)
+BACKUP_RETENTION_DAYS=14
+
+# Enable compression (default: 0, set to 1 to enable)
+BACKUP_COMPRESS=0
+
+# Enable verbose logging (default: 0, set to 1 to enable)
+BACKUP_VERBOSE=0
+
+# Custom log file path (default: /var/log/neoledger_backups.log)
+BACKUP_LOG_FILE=/var/log/neoledger_backups.log
+```
+
+### Managing Backup Cron Jobs
+
+To modify the backup schedule or frequency:
+
+```bash
+# View current cron jobs for www-data user
+sudo crontab -u www-data -l
+
+# Edit cron jobs for www-data user
+sudo crontab -u www-data -e
+
+# Remove all cron jobs for www-data user
+sudo crontab -u www-data -r
+```
+
+### Common Cron Schedule Examples
+
+```bash
+# Daily at 2:00 AM (default)
+0 2 * * * cd /var/www/html/sql-ledger-api && ./backup_datasets.pl
+
+# Twice daily at 6:00 AM and 6:00 PM
+0 6,18 * * * cd /var/www/html/sql-ledger-api && ./backup_datasets.pl
+
+# Weekly on Sunday at 3:00 AM
+0 3 * * 0 cd /var/www/html/sql-ledger-api && ./backup_datasets.pl
+
+# Every 6 hours
+0 */6 * * * cd /var/www/html/sql-ledger-api && ./backup_datasets.pl
+```
+
+### Manual Backup Execution
+
+You can run the backup script manually at any time:
+
+```bash
+# Run backup as www-data user
+sudo -u www-data cd /var/www/html/sql-ledger-api && ./backup_datasets.pl
+
+# Run with verbose output
+sudo -u www-data cd /var/www/html/sql-ledger-api && BACKUP_VERBOSE=1 ./backup_datasets.pl
+```
+
+### Backup File Structure
+
+Backups are organized in session directories:
+
+```
+/var/backups/neoledger/
+├── backup_20241201_020000/
+│   ├── centraldb_20241201_020000.sql
+│   ├── dataset1_20241201_020000.sql
+│   └── dataset2_20241201_020000.sql
+├── backup_20241202_020000/
+│   ├── centraldb_20241202_020000.sql
+│   └── ...
+└── ...
+```
+
+### Backup Logs
+
+The backup script logs its activities to:
+
+- **Console output**: Captured by cron and sent via email (if configured)
+- **Log file**: `/var/log/neoledger_backups.log` (if BACKUP_LOG_FILE is set)
+
+To monitor backup activities:
+
+```bash
+# View backup log file
+tail -f /var/log/neoledger_backups.log
+
+# Check cron logs for backup execution
+grep "backup_datasets" /var/log/syslog
+```
 
 ## Google Drive Configuration for Document Management
 
