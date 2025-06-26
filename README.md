@@ -533,7 +533,7 @@ quasar build
 cd /var/www/html/sql-ledger-api
 git pull
 systemctl stop minion
-hypnotoad index.pl
+kill -TERM $(cat hypnotoad.pid) && hypnotoad index.pl
 systemctl start minion
 ```
 
@@ -547,6 +547,7 @@ This will:
 6. Restart the backend service with the new changes
 7. Start the Minion worker service again
 
+It is required to kill the hypnotoad process and restart it for DB migration/updates to run
 Make sure to check the logs after updating to ensure everything is working correctly:
 
 ```bash
