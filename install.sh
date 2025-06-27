@@ -62,6 +62,10 @@ fi
 echo_status "Loading configuration from setup.env..."
 source setup.env
 
+# Clean URLs by removing protocol prefixes if present
+FRONTEND_URL=$(echo "$FRONTEND_URL" | sed 's|^https\?://||')
+BACKEND_URL=$(echo "$BACKEND_URL" | sed 's|^https\?://||')
+
 # Validate configuration
 if [ -z "$FRONTEND_URL" ]; then
     error_exit "FRONTEND_URL is not set in setup.env"
@@ -156,9 +160,16 @@ apt-get install -y wkhtmltopdf
 mkdir -p /var/www/html/ 
 cd /var/www/html/ 
 
-# Clone backend repository
-git clone https://github.com/HashimSaqib/sql-ledger-api.git 
-cd sql-ledger-api
+# Clone or update backend repository
+if [ -d "sql-ledger-api" ]; then
+    echo_status "Backend repository already exists, updating..."
+    cd sql-ledger-api
+    git pull || error_exit "Failed to update backend repository"
+else
+    echo_status "Cloning backend repository..."
+    git clone https://github.com/HashimSaqib/sql-ledger-api.git || error_exit "Failed to clone backend repository"
+    cd sql-ledger-api
+fi
 
 # Create tmp directory
 echo_status "Creating tmp directory..."
@@ -216,17 +227,17 @@ echo_status "Setting proper ownership for backend directory..."
 chown -R www-data:www-data /var/www/html/sql-ledger-api
 
 # Create PostgreSQL database and import schema
-sudo -u postgres psql -c "CREATE DATABASE centraldb OWNER $POSTGRES_USER;" || error_exit "Failed to create database"
+sudo -u postgres psql -c "CREATE DATABASE centraldb OWNER $POSTGRES_USER;" 2>/dev/null || echo "Database may already exist, continuing..."
 
 # Import schema as the database owner
 export PGPASSWORD="$POSTGRES_PASSWORD"
-psql -U "$POSTGRES_USER" -h 127.0.0.1 centraldb < centraldb.sql || error_exit "Failed to import database schema"
+psql -U "$POSTGRES_USER" -h 127.0.0.1 centraldb < centraldb.sql || echo "Schema may already be imported, continuing..."
 
 # Enable pgcrypto extension
 psql -U "$POSTGRES_USER" -h 127.0.0.1 centraldb -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;" || error_exit "Failed to enable pgcrypto extension"
 
-# Insert admin user
-psql -U "$POSTGRES_USER" -h 127.0.0.1 centraldb -c "INSERT INTO profile (email, password) VALUES ('$ADMIN_EMAIL', crypt('$ADMIN_PW', gen_salt('bf')));" || error_exit "Failed to create admin user"
+# Insert admin user (ignore if already exists)
+psql -U "$POSTGRES_USER" -h 127.0.0.1 centraldb -c "INSERT INTO profile (email, password) VALUES ('$ADMIN_EMAIL', crypt('$ADMIN_PW', gen_salt('bf'))) ON CONFLICT (email) DO NOTHING;" || error_exit "Failed to create admin user"
 
 # Grant all privileges on the database to the user
 sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE centraldb TO $POSTGRES_USER;" || error_exit "Failed to grant database privileges"
@@ -328,7 +339,7 @@ fi
 
 # Make sure Apache is installed and enabled
 apt-get install -y apache2
-a2enmod proxy proxy_http ssl rewrite
+a2enmod proxy proxy_http ssl rewrite headers
 systemctl enable apache2
 systemctl restart apache2
 
@@ -356,8 +367,6 @@ cat > /etc/apache2/sites-available/app.conf << EOF
     
     ErrorLog \${APACHE_LOG_DIR}/${FRONTEND_URL}-error.log
     CustomLog \${APACHE_LOG_DIR}/${FRONTEND_URL}-access.log combined
-RewriteCond %{SERVER_NAME} =${FRONTEND_URL}
-RewriteRule ^ https://%{SERVER_NAME}%{REQUEST_URI} [END,NE,R=permanent]
 </VirtualHost>
 EOF
 
@@ -370,6 +379,11 @@ cat > /etc/apache2/sites-available/api.conf << EOF
     ProxyPreserveHost On
     ProxyPass / http://localhost:3000/
     ProxyPassReverse / http://localhost:3000/
+    
+    # Forward protocol information for when HTTPS is enabled
+    ProxyPassReverse / http://localhost:3000
+    RequestHeader set X-Forwarded-Proto "http"
+    RequestHeader set X-Forwarded-Port "80"
     
     ErrorLog \${APACHE_LOG_DIR}/${BACKEND_URL}-error.log
     CustomLog \${APACHE_LOG_DIR}/${BACKEND_URL}-access.log combined
