@@ -333,7 +333,7 @@ systemctl enable apache2
 systemctl restart apache2
 
 # Configure web server for frontend
-cat > /etc/apache2/sites-available/${FRONTEND_URL}.conf << EOF
+cat > /etc/apache2/sites-available/app.conf << EOF
 <VirtualHost *:80>
     ServerName ${FRONTEND_URL}
     DocumentRoot /var/www/html/neo-ledger/dist/spa
@@ -363,7 +363,7 @@ EOF
 
 # Configure web server for backend
 echo_status "Configuring web server for backend..."
-cat > /etc/apache2/sites-available/${BACKEND_URL}.conf << EOF
+cat > /etc/apache2/sites-available/api.conf << EOF
 <VirtualHost *:80>
     ServerName ${BACKEND_URL}
     
@@ -377,8 +377,8 @@ cat > /etc/apache2/sites-available/${BACKEND_URL}.conf << EOF
 EOF
 
 # Enable sites
-a2ensite ${FRONTEND_URL}.conf
-a2ensite ${BACKEND_URL}.conf
+a2ensite app.conf
+a2ensite api.conf
 systemctl reload apache2
 
 # Retry starting backend service
@@ -397,8 +397,8 @@ cd /var/www/html/sql-ledger-api && hypnotoad index.pl
 
 # Display final status
 echo_status "Installation completed successfully!"
-echo_status "Frontend URL: https://${FRONTEND_URL}"
-echo_status "Backend URL: https://${BACKEND_URL}"
+echo_status "Frontend URL: ${FRONTEND_URL}"
+echo_status "Backend URL: ${BACKEND_URL}"
 echo_status "Admin Email: ${ADMIN_EMAIL}"
 echo_status "Daily backups scheduled at 2:00 AM"
 echo_status "Backup directory: /var/backups/neoledger"
