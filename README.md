@@ -533,7 +533,7 @@ quasar build
 cd /var/www/html/sql-ledger-api
 git pull
 systemctl stop minion
-kill -TERM $(cat hypnotoad.pid) && hypnotoad index.pl
+hypnotoad -s index.pl; hypnotoad index.pl
 systemctl start minion
 ```
 
