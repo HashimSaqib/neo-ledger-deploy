@@ -34,7 +34,7 @@ The installation script (`install.sh`) automates the complete setup of NeoLedger
 ### What the Script Installs
 
 - **System packages**: Apache, PostgreSQL, Perl, texlive, git, curl, certbot, etc.
-- **Backend**: SQL Ledger API (Perl-based)
+- **Backend**: SQL Ledger API (Perl-based) with systemd service
 - **Frontend**: NeoLedger (Quasar/Vue.js application)
 - **Database**: PostgreSQL with centraldb schema
 - **Web server**: Apache with virtual hosts
@@ -93,6 +93,8 @@ The installation script (`install.sh`) automates the complete setup of NeoLedger
 - `/var/www/html/neo-ledger/neoledger.json` - Frontend API URL configuration
 - `/etc/apache2/sites-available/[FRONTEND_URL].conf` - Apache frontend config
 - `/etc/apache2/sites-available/[BACKEND_URL].conf` - Apache backend config
+- `/etc/systemd/system/api.service` - Backend API systemd service
+- `/etc/systemd/system/minion.service` - Minion workers systemd service
 - `/var/backups/neoledger/` - Backup directory for database dumps
 - `/var/www/html/sql-ledger-api/backup_datasets.pl` - Backup script
 - `/var/log/neoledger_backups.log` - Backup log file (if configured)
@@ -211,11 +213,39 @@ EOF
 
 # Set proper ownership for the backend directory
 chown -R www-data:www-data /var/www/html/sql-ledger-api
-# Start backend service
-# Runs the backend on Port 3000 which we reverse Proxy to.
-# Creates a file called hypnotoad.pid with the pid of the process.
-# Process needs to be killed & restarted whenever ENV changes.
-hypnotoad index.pl
+
+# Set setgid bit to ensure all future files inherit www-data group ownership
+chmod g+s /var/www/html/sql-ledger-api
+find /var/www/html/sql-ledger-api -type d -exec chmod g+s {} \;
+
+# Configure and start API service with systemd
+cat > /etc/systemd/system/api.service << EOF
+[Unit]
+Description=Neo-Ledger Backend API
+After=postgresql.service network.target
+Requires=postgresql.service
+
+[Service]
+Type=forking
+User=www-data
+Group=www-data
+PIDFile=/var/www/html/sql-ledger-api/hypnotoad.pid
+ExecStart=/usr/bin/hypnotoad /var/www/html/sql-ledger-api/index.pl
+ExecReload=/bin/bash -c '/usr/bin/hypnotoad -s /var/www/html/sql-ledger-api/index.pl; /usr/bin/hypnotoad /var/www/html/sql-ledger-api/index.pl'
+ExecStop=/usr/bin/hypnotoad -s /var/www/html/sql-ledger-api/index.pl
+KillMode=mixed
+Restart=on-failure
+RestartSec=5
+WorkingDirectory=/var/www/html/sql-ledger-api
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# Enable and start API service
+systemctl daemon-reload
+systemctl enable api
+systemctl start api
 
 # Configure and start Minion workers
 cat > /etc/systemd/system/minion.service << EOF
@@ -240,6 +270,8 @@ systemctl enable minion
 systemctl start minion
 ```
 
+````
+
 ### 6. Setup Frontend
 
 ```bash
@@ -257,7 +289,7 @@ EOF
 # Install dependencies and build
 npm install
 quasar build
-```
+````
 
 ### 7. Configure Apache Web Server
 
@@ -532,9 +564,8 @@ quasar build
 # Update backend
 cd /var/www/html/sql-ledger-api
 git pull
-systemctl stop minion
-hypnotoad -s index.pl; hypnotoad index.pl
-systemctl start minion
+systemctl restart api
+systemctl restart minion
 ```
 
 This will:
@@ -543,14 +574,13 @@ This will:
 2. Install any new dependencies
 3. Rebuild the frontend application
 4. Pull the latest changes for the backend
-5. Stop the Minion worker service
-6. Restart the backend service with the new changes
-7. Start the Minion worker service again
+5. Restart the API service with the new changes
+6. Restart the Minion worker service
 
-It is required to kill the hypnotoad process and restart it for DB migration/updates to run
 Make sure to check the logs after updating to ensure everything is working correctly:
 
 ```bash
 tail -f /var/log/apache2/error.log
+systemctl status api
 systemctl status minion
 ```

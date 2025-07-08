@@ -226,6 +226,11 @@ EOF
 echo_status "Setting proper ownership for backend directory..."
 chown -R www-data:www-data /var/www/html/sql-ledger-api
 
+# Set setgid bit to ensure all future files inherit www-data group ownership
+echo_status "Setting setgid bit for future file ownership..."
+chmod g+s /var/www/html/sql-ledger-api
+find /var/www/html/sql-ledger-api -type d -exec chmod g+s {} \;
+
 # Create PostgreSQL database and import schema
 sudo -u postgres psql -c "CREATE DATABASE centraldb OWNER $POSTGRES_USER;" 2>/dev/null || echo "Database may already exist, continuing..."
 
@@ -283,9 +288,35 @@ npm install || error_exit "Failed to install frontend dependencies"
 
 quasar build || error_exit "Failed to build frontend"
 
-# Start backend service with hypnotoad
-cd /var/www/html/sql-ledger-api
-hypnotoad index.pl || echo "Failed to start hypnotoad. Will try again after web server setup."
+# Configure and start API service with systemd
+echo_status "Configuring API service with systemd..."
+cat > /etc/systemd/system/api.service << EOF
+[Unit]
+Description=Neo-Ledger Backend API
+After=postgresql.service network.target
+Requires=postgresql.service
+
+[Service]
+Type=forking
+User=www-data
+Group=www-data
+PIDFile=/var/www/html/sql-ledger-api/hypnotoad.pid
+ExecStart=/usr/bin/hypnotoad /var/www/html/sql-ledger-api/index.pl
+ExecReload=/bin/bash -c '/usr/bin/hypnotoad -s /var/www/html/sql-ledger-api/index.pl; /usr/bin/hypnotoad /var/www/html/sql-ledger-api/index.pl'
+ExecStop=/usr/bin/hypnotoad -s /var/www/html/sql-ledger-api/index.pl
+KillMode=mixed
+Restart=on-failure
+RestartSec=5
+WorkingDirectory=/var/www/html/sql-ledger-api
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# Enable and start API service
+systemctl daemon-reload
+systemctl enable api
+systemctl start api || echo "Failed to start API service. Will try again after web server setup."
 
 # Configure Minion workers for background job processing
 echo_status "Configuring Minion workers for background job processing..."
@@ -395,9 +426,7 @@ a2ensite app.conf
 a2ensite api.conf
 systemctl reload apache2
 
-# Retry starting backend service
-cd /var/www/html/sql-ledger-api
-hypnotoad index.pl 
+
 
 # Get SSL certificates with certbot
 echo_status "Obtaining SSL certificates..."
@@ -407,7 +436,7 @@ certbot --apache -d ${BACKEND_URL} --non-interactive --agree-tos --email admin@$
 # Final restart of services
 echo_status "Restarting services..."
 systemctl restart apache2
-cd /var/www/html/sql-ledger-api && hypnotoad index.pl
+systemctl restart api
 
 # Display final status
 echo_status "Installation completed successfully!"
